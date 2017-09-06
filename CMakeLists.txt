@@ -1,11 +1,9 @@
-cmake_minimum_required(VERSION 2.8)
-
 project(FlatBuffers)
 
 # NOTE: Code coverage only works on Linux & OSX.
 option(FLATBUFFERS_CODE_COVERAGE "Enable the code coverage build option." OFF)
-option(FLATBUFFERS_BUILD_TESTS "Enable the build of tests and samples." ON)
-option(FLATBUFFERS_INSTALL "Enable the installation of targets." ON)
+option(FLATBUFFERS_BUILD_TESTS "Enable the build of tests and samples." OFF)
+option(FLATBUFFERS_INSTALL "Enable the installation of targets." OFF)
 option(FLATBUFFERS_BUILD_FLATLIB "Enable the build of the flatbuffers library"
        ON)
 option(FLATBUFFERS_BUILD_FLATC "Enable the build of the flatbuffers compiler"
@@ -15,6 +13,11 @@ option(FLATBUFFERS_BUILD_GRPCTEST "Enable the build of grpctest" OFF)
 option(FLATBUFFERS_BUILD_SHAREDLIB
        "Enable the build of the flatbuffers shared library"
        OFF)
+
+if (IOS)
+    set(FLATBUFFERS_BUILD_FLATC OFF)
+    set(FLATBUFFERS_BUILD_FLATHASH OFF)
+endif()
 
 if(NOT FLATBUFFERS_BUILD_FLATC AND FLATBUFFERS_BUILD_TESTS)
     message(WARNING
@@ -101,79 +104,26 @@ set(FlatBuffers_GRPCTest_SRCS
 # source_group(Compiler FILES ${FlatBuffers_Compiler_SRCS})
 # source_group(Tests FILES ${FlatBuffers_Tests_SRCS})
 
-if(EXISTS "${CMAKE_TOOLCHAIN_FILE}")
-  # do not apply any global settings if the toolchain
-  # is being configured externally
-elseif(APPLE)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -stdlib=libc++")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic -Werror -Wextra -Wno-unused-parameter")
-elseif(CMAKE_COMPILER_IS_GNUCXX)
-  if(CYGWIN)
-    set(CMAKE_CXX_FLAGS
-      "${CMAKE_CXX_FLAGS} -std=gnu++11")
-  else(CYGWIN)
-    set(CMAKE_CXX_FLAGS
-      "${CMAKE_CXX_FLAGS} -std=c++0x")
-  endif(CYGWIN)
-  set(CMAKE_CXX_FLAGS
-    "${CMAKE_CXX_FLAGS} -Wall -pedantic -Werror -Wextra -Werror=shadow")
-  if (GCC_VERSION VERSION_GREATER 4.4)
-    set(CMAKE_CXX_FLAGS
-      "${CMAKE_CXX_FLAGS} -Wunused-result -Werror=unused-result \
-                          -Wunused-parameter -Werror=unused-parameter")
-  endif()
-
-  # Certain platforms such as ARM do not use signed chars by default
-  # which causes issues with certain bounds checks.
-  set(CMAKE_CXX_FLAGS
-    "${CMAKE_CXX_FLAGS} -fsigned-char")
-
-elseif(${CMAKE_CXX_COMPILER_ID} MATCHES "Clang")
-  set(CMAKE_CXX_FLAGS
-      "${CMAKE_CXX_FLAGS} -std=c++0x -Wall -pedantic -Werror \
-                          -Wextra -Wno-unused-parameter")
-  if(NOT "${CMAKE_SYSTEM_NAME}" MATCHES "Linux")
-    set(CMAKE_CXX_FLAGS
-        "${CMAKE_CXX_FLAGS} -stdlib=libc++")
-  endif()
-  if(NOT ("${CMAKE_SYSTEM_NAME}" MATCHES "FreeBSD" OR
-          "${CMAKE_SYSTEM_NAME}" MATCHES "Linux"))
-    set(CMAKE_EXE_LINKER_FLAGS
-        "${CMAKE_EXE_LINKER_FLAGS} -lc++abi")
-  endif()
-
-  # Certain platforms such as ARM do not use signed chars by default
-  # which causes issues with certain bounds checks.
-  set(CMAKE_CXX_FLAGS
-    "${CMAKE_CXX_FLAGS} -fsigned-char")
-
-elseif(MSVC)
-  # Visual Studio pedantic build settings
-  # warning C4512: assignment operator could not be generated
-  # warning C4316: object allocated on the heap may not be aligned
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W4 /WX /wd4512 /wd4316")
-endif()
-
-if(FLATBUFFERS_CODE_COVERAGE)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -fprofile-arcs -ftest-coverage")
-  set(CMAKE_EXE_LINKER_FLAGS
-      "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage")
-endif()
-
 if(BIICODE)
   include(biicode/cmake/biicode.cmake)
   return()
 endif()
 
-include_directories(include)
-include_directories(grpc)
-
 if(FLATBUFFERS_BUILD_FLATLIB)
-add_library(flatbuffers STATIC ${FlatBuffers_Library_SRCS})
+  add_library(flatbuffers STATIC ${FlatBuffers_Library_SRCS})
+  target_include_directories(flatbuffers PUBLIC include)
+  target_include_directories(flatbuffers PUBLIC grpc)
+  thor_macos_target_setup_library(flatbuffers)
+  thor_ios_target_setup_library(flatbuffers)
+  set_target_properties (flatbuffers PROPERTIES FOLDER Submodules)
 endif()
 
 if(FLATBUFFERS_BUILD_FLATC)
   add_executable(flatc ${FlatBuffers_Compiler_SRCS})
+  target_include_directories(flatc PUBLIC include)
+  target_include_directories(flatc PUBLIC grpc)
+  thor_macos_target_setup_library(flatc)
+  set_target_properties (flatc PROPERTIES FOLDER Submodules)
   if(NOT FLATBUFFERS_FLATC_EXECUTABLE)
     set(FLATBUFFERS_FLATC_EXECUTABLE $<TARGET_FILE:flatc>)
   endif()
@@ -185,11 +135,10 @@ endif()
 
 if(FLATBUFFERS_BUILD_FLATHASH)
   add_executable(flathash ${FlatHash_SRCS})
-endif()
-
-if(FLATBUFFERS_BUILD_SHAREDLIB)
-  add_library(flatbuffers_shared SHARED ${FlatBuffers_Library_SRCS})
-  set_target_properties(flatbuffers_shared PROPERTIES OUTPUT_NAME flatbuffers)
+  target_include_directories(flathash PUBLIC include)
+  target_include_directories(flathash PUBLIC grpc)
+  thor_macos_target_setup_library(flathash)
+  set_target_properties (flathash PROPERTIES FOLDER Submodules)
 endif()
 
 function(compile_flatbuffers_schema_to_cpp SRC_FBS)
@@ -229,37 +178,4 @@ if(FLATBUFFERS_BUILD_TESTS)
   add_executable(flatsampletext ${FlatBuffers_Sample_Text_SRCS})
 endif()
 
-if(FLATBUFFERS_BUILD_GRPCTEST)
-  if(CMAKE_COMPILER_IS_GNUCXX)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-parameter -Wno-shadow")
-  endif()
-  add_executable(grpctest ${FlatBuffers_GRPCTest_SRCS})
-  target_link_libraries(grpctest grpc++_unsecure pthread dl)
-endif()
-
-if(FLATBUFFERS_INSTALL)
-  install(DIRECTORY include/flatbuffers DESTINATION include)
-  if(FLATBUFFERS_BUILD_FLATLIB)
-    install(TARGETS flatbuffers DESTINATION lib)
-  endif()
-  if(FLATBUFFERS_BUILD_FLATC)
-    install(TARGETS flatc DESTINATION bin)
-  endif()
-  if(FLATBUFFERS_BUILD_SHAREDLIB)
-    install(TARGETS flatbuffers_shared DESTINATION lib)
-  endif()
-endif()
-
-if(FLATBUFFERS_BUILD_TESTS)
-  enable_testing()
-
-  file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/tests" DESTINATION
-       "${CMAKE_CURRENT_BINARY_DIR}")
-  add_test(NAME flattests COMMAND flattests)
-endif()
-
 include(CMake/BuildFlatBuffers.cmake)
-
-if(FLATBUFFERS_PACKAGE_DEBIAN)
-    include(CMake/PackageDebian.cmake)
-endif()
